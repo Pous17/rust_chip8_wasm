@@ -448,4 +448,20 @@ impl Emu {
             self.st -= 1;
         }
     }
+
+    pub fn display(&self) -> &[bool] {
+        &self.screen
+    }
+
+    // takes index of the key pressed and sets the bool
+    pub fn keypress(&mut self, idx: usize, pressed: bool) {
+        self.keys[idx] = pressed;
+    }
+
+    // take a list of bytes and copies it into the ram
+    pub fn load(& mut self, data: &[u8]) {
+        let start = START_ADDR as usize;
+        let end = (START_ADDR as usize) + data.len();
+        self.ram[start..end].copy_from_slice(data);
+    }
 }
