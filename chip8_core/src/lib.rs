@@ -1,3 +1,5 @@
+use rand::random;
+
 const FONTSET_SIZE: usize = 80;
 
 const FONTSET: [u8; FONTSET_SIZE] = [
@@ -271,7 +273,164 @@ impl Emu {
                 self.pc = (self.v_reg[0] as u16) + nnn;
             },
 
+            // rng & the two lower bytes of the opcode
+            (0xC, _, _, _) => {
+                let x = digit2 as usize;
+                let nn = (op & 0xFF) as u8;
+                let rng: u8 = random();
+                self.v_reg[x] = rng & nn;
+            },
             
+            // draw sprite
+            // digit2 and 3 are the x and y coordinates 
+            // where the sprite will be displayed
+            // digit4 equals to the height of the sprite, can range between 1 and 16px
+            // width fixed to 8px
+            (0xD, _, _, _) => {
+                // get coordinates
+                let x_coord = self.v_reg[digit2 as usize] as u16;
+                let y_coord = self.v_reg[digit3 as usize] as u16;
+
+                // get height
+                let height = digit4;
+
+                // track flipped pixels
+                let mut flipped = false;
+
+                // iterate over each horizontal row
+                for y_line in 0..height {
+                    
+                    // determine which memory address our row is stored
+                    let addr = self.i_reg + y_line as u16;
+                    let pixels = self.ram[addr as usize];
+
+                    // iterate over each column in the row
+                    for x_line in 0..8 {
+                        if (pixels & (0b1000_0000 >> x_line)) != 0 {
+                            let x = (x_coord + x_line) as usize % SCREEN_WIDTH;
+                            let y = (y_coord + y_line) as usize % SCREEN_HEIGHT;
+
+                            // pixel index
+                            let idx = x + SCREEN_WIDTH * y;
+
+                            // check if we're about to flip the pixel
+                            flipped |= self.screen[idx];
+                            self.screen[idx] ^= true;
+                        }
+                    }
+                }
+                if flipped {
+                    self.v_reg[0xF] = 1;
+                } else {
+                    self.v_reg[0xF] = 0;
+                }
+            },
+
+            // skip when key pressed
+            (0xE, _, 9, 0xE) => {
+                let x = digit2 as usize;
+                let vx = self.v_reg[x];
+                let key = self.keys[vx as usize];
+                if key {
+                    self.pc += 2;
+                }
+            },
+
+            // skip if the key in question is'nt being pressed
+            (0xE, _, 0xA, 1) => {
+                let x = digit2 as usize;
+                let vx = self.v_reg[x];
+                let key = self.keys[vx as usize];
+                if !key {
+                    self.pc += 2;
+                }
+            },
+
+            // store the current Delay Timer value in one of the V registers
+            (0xF, _, 0, 7) => {
+                let x = digit2 as usize;
+                self.v_reg[x] = self.dt;
+            },
+
+            // wait for key press, stores it and if multiples keys the lowest indexed one
+            (0xF, _, 0, 0xA) => {
+                let x = digit2 as usize;
+                let mut pressed = false;
+                for i in 0..self.keys.len() {
+                    self.v_reg[x] = i as u8;
+                    pressed = true;
+                    break;
+                }
+
+                // re-execute opcode
+                if !pressed {
+                    self.pc -= 2;
+                }
+            }, 
+
+            // copy a value from a V register to the delay timer
+            (0xF, _, 1, 5) => {
+                let x = digit2 as usize;
+                self.dt = self.v_reg[x];
+            },
+
+            // same as the last opcode but stored in the sound timer
+            (0xF, _, 1, 8) => {
+                let x = digit2 as usize;
+                self.st = self.v_reg[x];
+            },
+
+            // stores an vx value in an I register slot
+            (0xF, _, 1, 0xE) => {
+                let x = digit2 as usize;
+                let vx = self.v_reg[x] as u16;
+                self.i_reg = self.i_reg.wrapping_add(vx);
+            },
+
+            // set I to font address
+            // each font sprite take 5 bytes, so their ram adress is their value times 5
+            (0xF, _, 2, 9) => {
+                let x = digit2 as usize;
+                let c = self.v_reg[x] as u16;
+                self.i_reg = c * 5;
+            },
+
+            // binary coded decimal
+            (0xF, _, 3, 3) => {
+                let x = digit2 as usize; 
+                let vx = self.v_reg[x] as f32;
+
+                // fetch hundreds digit
+                let hundreds = (vx / 100.0).floor() as u8;
+
+                // fetch tens digit
+                let tens = ((vx / 10.0) % 10.0).floor() as u8;
+
+                // fetch the ones 
+                let ones = (vx % 10.0) as u8;
+
+                self.ram[self.i_reg as usize] = hundreds;
+                self.ram[(self.i_reg + 1) as usize] = tens;
+                self.ram[(self.i_reg + 2) as usize] = ones;
+            },
+
+            // load v0 to vx into i
+            (0xF, _, 5, 5) => {
+                let x = digit2 as usize;
+                let i = self.i_reg as usize;
+                for idx in 0..=x {
+                    self.ram[i + idx] = self.v_reg[idx];
+                }
+            },
+
+            // load i into v0 to vx 
+            (0xF, _, 6, 5) => {
+                let x = digit2 as usize;
+                let i = self.i_reg as usize;
+                for idx in 0..=x {
+                    self.v_reg[idx] = self.ram[i + idx];
+                }
+            },
 
             (_, _, _, _) => unimplemented!("Unimplemented opcode: {}", op),
         }
