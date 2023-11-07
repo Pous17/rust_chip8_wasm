@@ -1,2 +1,2 @@
 # rust_chip8
-Rust chip-8 emulator with wasm. Not working yet due to mysterious errors.
+Rust chip-8 emulator with wasm. Still working on fixing some errors.
